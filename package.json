@@ -1,0 +1,16 @@
+{
+  "name": "distance-audio-model",
+  "version": "1.0.0",
+  "description": "A browser-based tool to simulate audio gain changes over distance for a looping soundscape with optional random one-shots.",
+  "private": true,
+  "scripts": {
+    "dev": "serve public --listen 5173",
+    "start": "serve public --listen 5173",
+    "build": "node -e \"console.log('This is a static site. The deployable output is the public/ folder.')\"",
+    "deploy:vercel": "vercel deploy public --prod",
+    "deploy:netlify": "netlify deploy --dir public --prod"
+  },
+  "devDependencies": {
+    "serve": "^14.2.4"
+  }
+}

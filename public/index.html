@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Distance Model</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1f2937; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+
+        /* Range Slider Styling */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]:focus {
+            outline: none;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 6px;
+            cursor: pointer;
+            background: #374151;
+            border-radius: 999px;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #3b82f6;
+            cursor: pointer;
+            -webkit-appearance: none;
+            margin-top: -5px;
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+            transition: transform 0.1s;
+        }
+        input[type=range]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+        
+        /* Specific track colors for distance/radius */
+        #distance::-webkit-slider-thumb { background: #ef4444; box-shadow: 0 0 10px rgba(239, 68, 68, 0.5); }
+        #innerRadius::-webkit-slider-thumb { background: #10b981; box-shadow: 0 0 10px rgba(16, 185, 129, 0.5); }
+        #outerRadius::-webkit-slider-thumb { background: #f59e0b; box-shadow: 0 0 10px rgba(245, 158, 11, 0.5); }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen p-4 md:p-8">
+
+    <div class="max-w-5xl mx-auto space-y-6">
+        
+        <!-- Header -->
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold text-white mb-2 flex items-center gap-3">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                </svg>
+                Distance Audio Model
+            </h1>
+            <p class="text-gray-400">Simulate gain changes over distance for a looping soundscape with optional random one-shots.</p>
+        </header>
+
+        <!-- Main Controls Panel -->
+        <div class="bg-gray-900 border border-gray-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                
+                <!-- Environment Controls -->
+                <div class="space-y-6">
+                    <h2 class="text-xl font-semibold text-white mb-4 border-b border-gray-800 pb-2">Environment Setup</h2>
+                    
+                    <!-- Distance -->
+                    <div>
+                        <div class="flex justify-between mb-1">
+                            <label for="distance" class="text-sm font-medium text-gray-300">Listener Distance</label>
+                            <span id="distanceVal" class="text-sm font-bold text-red-400">120m</span>
+                        </div>
+                        <input type="range" id="distance" min="0" max="120" value="120" class="w-full">
+                    </div>
+
+                    <!-- Inner Radius -->
+                    <div>
+                        <div class="flex justify-between mb-1">
+                            <label for="innerRadius" class="text-sm font-medium text-gray-300">Inner Radius (Full Volume)</label>
+                            <span id="innerRadiusVal" class="text-sm font-bold text-emerald-400">20m</span>
+                        </div>
+                        <input type="range" id="innerRadius" min="1" max="100" value="20" class="w-full">
+                    </div>
+
+                    <!-- Outer Radius -->
+                    <div>
+                        <div class="flex justify-between mb-1">
+                            <label for="outerRadius" class="text-sm font-medium text-gray-300">Outer Radius (Zero Volume)</label>
+                            <span id="outerRadiusVal" class="text-sm font-bold text-amber-400">80m</span>
+                        </div>
+                        <input type="range" id="outerRadius" min="1" max="100" value="80" class="w-full">
+                    </div>
+                </div>
+
+                <!-- Visualization & Playback -->
+                <div class="flex flex-col justify-between space-y-6">
+                    <div>
+                        <h2 class="text-xl font-semibold text-white mb-4 border-b border-gray-800 pb-2">Master Gain Calculation</h2>
+                        
+                        <div class="bg-gray-950 rounded-xl p-6 border border-gray-800 text-center relative overflow-hidden">
+                            <div class="text-sm text-gray-400 mb-2">Current Model Multiplier</div>
+                            <div id="masterGainReadout" class="text-5xl font-bold text-white mb-2">0.00x</div>
+                            <div class="w-full bg-gray-800 h-2 rounded-full mt-4 overflow-hidden">
+                                <div id="gainBar" class="h-full bg-blue-500 transition-all duration-100" style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Transport Controls -->
+                    <div class="flex gap-4 pt-4">
+                        <button id="btnPlay" disabled class="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-800 disabled:text-gray-500 text-white font-bold py-3 px-6 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            Play Scenario
+                        </button>
+                        <button id="btnStop" class="bg-red-600 hover:bg-red-500 text-white font-bold py-3 px-6 rounded-xl transition flex items-center justify-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+                            </svg>
+                            Stop
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Audio Setup Panel -->
+        <div class="bg-gray-900 border border-gray-800 rounded-2xl shadow-xl overflow-hidden">
+            
+            <!-- Looping Asset -->
+            <div class="p-6 border-b border-gray-800 bg-blue-900/10">
+                <h2 class="text-xl font-semibold text-blue-400 mb-4 flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Primary Looping Audio (Required)
+                </h2>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-2">Select Audio File</label>
+                        <input type="file" id="loopFile" accept="audio/*" class="block w-full text-sm text-gray-400
+                            file:mr-4 file:py-2.5 file:px-4
+                            file:rounded-lg file:border-0
+                            file:text-sm file:font-semibold
+                            file:bg-blue-600 file:text-white
+                            hover:file:bg-blue-500 transition-all cursor-pointer">
+                    </div>
+                    <div>
+                        <div class="flex justify-between mb-1">
+                            <label class="text-sm font-medium text-gray-300">Base Volume Gain</label>
+                            <span id="loopGainVal" class="text-sm font-bold text-gray-300">1.0</span>
+                        </div>
+                        <input type="range" id="loopGain" min="0" max="2" step="0.05" value="1" class="w-full">
+                    </div>
+                </div>
+            </div>
+
+            <!-- One-Shots Setup -->
+            <div class="p-6">
+                <div class="flex justify-between items-end mb-6">
+                    <div>
+                        <h2 class="text-xl font-semibold text-gray-100 flex items-center gap-2 mb-1">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                            </svg>
+                            One-Shot Audio (Optional)
+                        </h2>
+                        <p class="text-sm text-gray-400">Plays randomly every 1 to 5 seconds.</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4" id="oneshotsContainer">
+                    <!-- Javascript will populate 8 slots here -->
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // --- Application State ---
+        let audioCtx = null;
+        let masterGainNode = null;
+        
+        let loopBuffer = null;
+        let loopSource = null;
+        let loopGainNode = null;
+        let loopBaseGain = 1.0;
+        
+        const MAX_ONESHOTS = 8;
+        const oneShots = Array(MAX_ONESHOTS).fill(null).map(() => ({
+            buffer: null,
+            baseGain: 1.0,
+            filename: ''
+        }));
+        
+        let isPlaying = false;
+        let oneShotTimerId = null;
+        let activeOneShotSources = [];
+
+        // --- DOM Elements ---
+        const distSlider = document.getElementById('distance');
+        const innerSlider = document.getElementById('innerRadius');
+        const outerSlider = document.getElementById('outerRadius');
+        const distVal = document.getElementById('distanceVal');
+        const innerVal = document.getElementById('innerRadiusVal');
+        const outerVal = document.getElementById('outerRadiusVal');
+        
+        const masterGainReadout = document.getElementById('masterGainReadout');
+        const gainBar = document.getElementById('gainBar');
+        
+        const btnPlay = document.getElementById('btnPlay');
+        const btnStop = document.getElementById('btnStop');
+        
+        const loopFile = document.getElementById('loopFile');
+        const loopGain = document.getElementById('loopGain');
+        const loopGainVal = document.getElementById('loopGainVal');
+        
+        const oneshotsContainer = document.getElementById('oneshotsContainer');
+
+        // --- Initialization ---
+        function initAudioContext() {
+            if (!audioCtx) {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                audioCtx = new AudioContext();
+                
+                // Master node that handles the distance fading
+                masterGainNode = audioCtx.createGain();
+                masterGainNode.connect(audioCtx.destination);
+                
+                // Initialize gain value
+                updateDistanceModel();
+            }
+        }
+
+        // --- Math & Logic ---
+        function updateDistanceModel() {
+            const dist = parseFloat(distSlider.value);
+            const inner = parseFloat(innerSlider.value);
+            const outer = parseFloat(outerSlider.value);
+            
+            // UI Enforcements
+            if (inner > outer) {
+                // If inner surpasses outer, push outer along
+                outerSlider.value = inner;
+                outerVal.innerText = `${inner}m`;
+            }
+
+            let multiplier = 0;
+            
+            if (dist <= inner) {
+                multiplier = 1.0; // Full volume inside inner radius
+            } else if (dist >= outer) {
+                multiplier = 0.0; // Zero volume outside outer radius
+            } else {
+                // Linear ramp between inner and outer
+                // Prevent division by zero if inner == outer
+                if (outer > inner) {
+                    multiplier = 1.0 - ((dist - inner) / (outer - inner));
+                } else {
+                    multiplier = 0.0;
+                }
+            }
+
+            // Apply to audio engine if running
+            if (masterGainNode && audioCtx) {
+                // Smooth transition to avoid clicking when dragging slider
+                masterGainNode.gain.setTargetAtTime(multiplier, audioCtx.currentTime, 0.05);
+            }
+
+            // Update UI
+            masterGainReadout.innerText = `${multiplier.toFixed(2)}x`;
+            gainBar.style.width = `${multiplier * 100}%`;
+            
+            // Adjust colors based on level
+            if(multiplier === 0) {
+                masterGainReadout.classList.replace('text-white', 'text-gray-600');
+                gainBar.classList.replace('bg-blue-500', 'bg-gray-600');
+            } else {
+                masterGainReadout.classList.replace('text-gray-600', 'text-white');
+                gainBar.classList.replace('bg-gray-600', 'bg-blue-500');
+            }
+        }
+
+        // --- File Handling ---
+        async function loadAudioFile(file) {
+            initAudioContext();
+            const arrayBuffer = await file.arrayBuffer();
+            return await audioCtx.decodeAudioData(arrayBuffer);
+        }
+
+        loopFile.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            try {
+                // Read and decode
+                loopBuffer = await loadAudioFile(file);
+                
+                // Enable play button
+                btnPlay.disabled = false;
+                
+                // If playing, restart the loop to apply new file
+                if (isPlaying) {
+                    stopPlayback();
+                    startPlayback();
+                }
+            } catch (err) {
+                console.error("Error decoding looping audio:", err);
+                alert("Error loading audio file. Please try another file.");
+            }
+        });
+
+        // --- UI Event Listeners ---
+        distSlider.addEventListener('input', (e) => {
+            distVal.innerText = `${e.target.value}m`;
+            updateDistanceModel();
+        });
+        
+        innerSlider.addEventListener('input', (e) => {
+            innerVal.innerText = `${e.target.value}m`;
+            updateDistanceModel();
+        });
+        
+        outerSlider.addEventListener('input', (e) => {
+            // Enforce constraints
+            if (parseInt(e.target.value) < parseInt(innerSlider.value)) {
+                e.target.value = innerSlider.value;
+            }
+            outerVal.innerText = `${e.target.value}m`;
+            updateDistanceModel();
+        });
+
+        loopGain.addEventListener('input', (e) => {
+            loopBaseGain = parseFloat(e.target.value);
+            loopGainVal.innerText = loopBaseGain.toFixed(2);
+            if (loopGainNode && audioCtx) {
+                loopGainNode.gain.setTargetAtTime(loopBaseGain, audioCtx.currentTime, 0.05);
+            }
+        });
+
+        // --- Playback Engine ---
+        function startPlayback() {
+            if (!loopBuffer) return;
+            initAudioContext();
+            
+            // Resume context if suspended (browser auto-play policy)
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+
+            isPlaying = true;
+            btnPlay.classList.add('ring-2', 'ring-emerald-400', 'ring-offset-2', 'ring-offset-gray-900');
+            btnPlay.innerHTML = `<svg class="animate-spin -ml-1 mr-2 h-5 w-5 text-white inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Playing...`;
+
+            // Setup Looping Source
+            loopSource = audioCtx.createBufferSource();
+            loopSource.buffer = loopBuffer;
+            loopSource.loop = true;
+            
+            // Setup specific gain node for the loop (so user can balance volumes)
+            loopGainNode = audioCtx.createGain();
+            loopGainNode.gain.value = loopBaseGain;
+            
+            // Connect: Source -> LoopGain -> MasterGain -> Destination
+            loopSource.connect(loopGainNode);
+            loopGainNode.connect(masterGainNode);
+            
+            loopSource.start();
+
+            // Start one-shot scheduler
+            scheduleNextOneShot();
+        }
+
+        function stopPlayback() {
+            isPlaying = false;
+            
+            // Reset button UI
+            btnPlay.classList.remove('ring-2', 'ring-emerald-400', 'ring-offset-2', 'ring-offset-gray-900');
+            btnPlay.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> Play Scenario`;
+
+            if (loopSource) {
+                try { loopSource.stop(); } catch (e) {}
+                loopSource.disconnect();
+                loopSource = null;
+            }
+            if (loopGainNode) {
+                loopGainNode.disconnect();
+                loopGainNode = null;
+            }
+
+            if (oneShotTimerId) {
+                clearTimeout(oneShotTimerId);
+                oneShotTimerId = null;
+            }
+
+            // Stop any one-shots currently mid-playback
+            activeOneShotSources.forEach(source => {
+                try { source.stop(); } catch (e) {}
+                try { source.disconnect(); } catch (e) {}
+            });
+            activeOneShotSources = [];
+        }
+
+        function scheduleNextOneShot() {
+            if (!isPlaying) return;
+
+            const validShots = oneShots.filter(s => s.buffer !== null);
+            
+            if (validShots.length > 0) {
+                // Random interval between 1s (1000ms) and 5s (5000ms)
+                const interval = Math.floor(Math.random() * 4000) + 1000;
+                
+                oneShotTimerId = setTimeout(() => {
+                    playRandomOneShot(validShots);
+                    scheduleNextOneShot(); // Schedule the next one recursively
+                }, interval);
+            } else {
+                // If no one-shots loaded yet, check again in 1 second
+                oneShotTimerId = setTimeout(() => {
+                    scheduleNextOneShot();
+                }, 1000);
+            }
+        }
+
+        function playRandomOneShot(validShots) {
+            if (!audioCtx || !isPlaying) return;
+
+            // Pick random shot
+            const shot = validShots[Math.floor(Math.random() * validShots.length)];
+            
+            // Create source & gain nodes
+            const source = audioCtx.createBufferSource();
+            source.buffer = shot.buffer;
+            
+            const specificGain = audioCtx.createGain();
+            specificGain.gain.value = shot.baseGain;
+            
+            // Connect & play
+            source.connect(specificGain);
+            specificGain.connect(masterGainNode);
+            
+            // Track active one-shots so they can be stopped mid-playback
+            activeOneShotSources.push(source);
+            source.onended = () => {
+                const idx = activeOneShotSources.indexOf(source);
+                if (idx > -1) activeOneShotSources.splice(idx, 1);
+            };
+
+            source.start();
+            
+            // Visual feedback (optional flash)
+            flashOneShotUI(shot.index);
+        }
+
+        // --- Render Dynamic UI ---
+        function createOneShotSlots() {
+            for (let i = 0; i < MAX_ONESHOTS; i++) {
+                oneShots[i].index = i; // store index for UI flashing
+
+                const div = document.createElement('div');
+                div.className = "bg-gray-800/50 p-4 rounded-xl border border-gray-700 transition-colors duration-200";
+                div.id = `oneshot-slot-${i}`;
+                
+                div.innerHTML = `
+                    <div class="flex justify-between items-center mb-3">
+                        <span class="text-sm font-semibold text-gray-300">Slot ${i + 1}</span>
+                        <span id="oneshot-gain-val-${i}" class="text-xs font-mono bg-gray-900 px-2 py-1 rounded text-gray-400">Gain: 1.0</span>
+                    </div>
+                    
+                    <input type="file" id="oneshot-file-${i}" accept="audio/*" class="block w-full text-xs text-gray-400 mb-3
+                        file:mr-3 file:py-1.5 file:px-3
+                        file:rounded-md file:border-0
+                        file:text-xs file:font-semibold
+                        file:bg-gray-700 file:text-gray-200
+                        hover:file:bg-gray-600 cursor-pointer">
+                    
+                    <input type="range" id="oneshot-gain-${i}" min="0" max="2" step="0.05" value="1" class="w-full">
+                `;
+                oneshotsContainer.appendChild(div);
+
+                // File Event
+                document.getElementById(`oneshot-file-${i}`).addEventListener('change', async (e) => {
+                    const file = e.target.files[0];
+                    if (!file) {
+                        oneShots[i].buffer = null;
+                        oneShots[i].filename = '';
+                        document.getElementById(`oneshot-slot-${i}`).classList.replace('bg-purple-900/20', 'bg-gray-800/50');
+                        document.getElementById(`oneshot-slot-${i}`).classList.replace('border-purple-500/50', 'border-gray-700');
+                        return;
+                    }
+                    try {
+                        oneShots[i].buffer = await loadAudioFile(file);
+                        oneShots[i].filename = file.name;
+                        // Highlight slot to show it's active
+                        document.getElementById(`oneshot-slot-${i}`).classList.replace('bg-gray-800/50', 'bg-purple-900/20');
+                        document.getElementById(`oneshot-slot-${i}`).classList.replace('border-gray-700', 'border-purple-500/50');
+                    } catch (err) {
+                        alert("Error loading one-shot file.");
+                    }
+                });
+
+                // Gain Event
+                document.getElementById(`oneshot-gain-${i}`).addEventListener('input', (e) => {
+                    const val = parseFloat(e.target.value);
+                    oneShots[i].baseGain = val;
+                    document.getElementById(`oneshot-gain-val-${i}`).innerText = `Gain: ${val.toFixed(2)}`;
+                });
+            }
+        }
+        
+        function flashOneShotUI(index) {
+            const el = document.getElementById(`oneshot-slot-${index}`);
+            if(el) {
+                el.classList.add('ring-2', 'ring-purple-400');
+                setTimeout(() => {
+                    el.classList.remove('ring-2', 'ring-purple-400');
+                }, 300);
+            }
+        }
+
+        // Initialize UI & Bindings
+        createOneShotSlots();
+        updateDistanceModel();
+
+        btnPlay.addEventListener('click', () => {
+            if (isPlaying) stopPlayback();
+            else startPlayback();
+        });
+        
+        btnStop.addEventListener('click', stopPlayback);
+
+    </script>
+</body>
+</html>
