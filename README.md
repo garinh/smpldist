@@ -52,21 +52,6 @@ npm run deploy:vercel     # requires: npm i -g vercel  (and `vercel login`)
 npm run deploy:netlify    # requires: npm i -g netlify-cli  (and `netlify login`)
 ```
 
-### GitHub Pages (automatic)
-
-This repo includes a workflow at `.github/workflows/deploy.yml` that publishes
-the `public/` folder to GitHub Pages on every push to `main`.
-
-One-time setup on GitHub: go to **Settings → Pages** and set **Source** to
-**GitHub Actions**. After the next push, the site is served at:
-
-```
-https://garinh.github.io/smpldist/
-```
-
-You can also trigger a deploy manually from the **Actions** tab
-("Deploy to GitHub Pages" → "Run workflow").
-
 ## Note on Tailwind CSS
 
 The UI uses the Tailwind Play CDN (`https://cdn.tailwindcss.com`), which is
