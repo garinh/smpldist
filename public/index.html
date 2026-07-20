@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Audio Distance Model</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; }
@@ -57,14 +58,31 @@
     <div class="max-w-5xl mx-auto space-y-6">
         
         <!-- Header -->
-        <header class="mb-8">
-            <h1 class="text-3xl font-bold text-white mb-2 flex items-center gap-3">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                </svg>
-                Distance Audio Model
-            </h1>
-            <p class="text-gray-400">Simulate gain changes over distance for a looping soundscape with optional random one-shots.</p>
+        <header class="mb-8 flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+            <div>
+                <h1 class="text-3xl font-bold text-white mb-2 flex items-center gap-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                    </svg>
+                    Distance Audio Model
+                </h1>
+                <p class="text-gray-400">Simulate gain changes over distance for a looping soundscape with optional random one-shots.</p>
+            </div>
+            <div class="flex gap-3 shrink-0">
+                <button id="btnExport" class="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold py-2 px-4 rounded-lg transition flex items-center gap-2 cursor-pointer">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    Export .sap
+                </button>
+                <button id="btnImport" class="bg-gray-700 hover:bg-gray-600 text-white text-sm font-semibold py-2 px-4 rounded-lg transition flex items-center gap-2 cursor-pointer">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                    </svg>
+                    Import .sap
+                </button>
+                <input type="file" id="importFile" accept=".sap,.zip" class="hidden">
+            </div>
         </header>
 
         <!-- Main Controls Panel -->
@@ -159,6 +177,7 @@
                             file:text-sm file:font-semibold
                             file:bg-blue-600 file:text-white
                             hover:file:bg-blue-500 transition-all cursor-pointer">
+                        <p id="loopFileName" class="mt-2 text-xs text-gray-500 truncate">No file loaded</p>
                     </div>
                     <div>
                         <div class="flex justify-between mb-1">
@@ -201,10 +220,13 @@
         let loopSource = null;
         let loopGainNode = null;
         let loopBaseGain = 1.0;
+        let loopFileData = null;   // raw bytes of the loaded loop file (for export)
+        let loopFilename = '';
         
         const MAX_ONESHOTS = 8;
         const oneShots = Array(MAX_ONESHOTS).fill(null).map(() => ({
             buffer: null,
+            data: null,            // raw bytes of the loaded file (for export)
             baseGain: 1.0,
             filename: ''
         }));
@@ -230,6 +252,11 @@
         const loopFile = document.getElementById('loopFile');
         const loopGain = document.getElementById('loopGain');
         const loopGainVal = document.getElementById('loopGainVal');
+        const loopNameEl = document.getElementById('loopFileName');
+        
+        const btnExport = document.getElementById('btnExport');
+        const btnImport = document.getElementById('btnImport');
+        const importFile = document.getElementById('importFile');
         
         const oneshotsContainer = document.getElementById('oneshotsContainer');
 
@@ -298,10 +325,19 @@
         }
 
         // --- File Handling ---
+        // Returns both the raw bytes (kept for export) and the decoded AudioBuffer.
+        // decodeAudioData detaches the buffer it receives, so we decode from a copy
+        // and keep the original intact.
         async function loadAudioFile(file) {
             initAudioContext();
             const arrayBuffer = await file.arrayBuffer();
-            return await audioCtx.decodeAudioData(arrayBuffer);
+            const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer.slice(0));
+            return { arrayBuffer, audioBuffer };
+        }
+
+        async function decodeBytes(arrayBuffer) {
+            initAudioContext();
+            return await audioCtx.decodeAudioData(arrayBuffer.slice(0));
         }
 
         loopFile.addEventListener('change', async (e) => {
@@ -310,7 +346,11 @@
             
             try {
                 // Read and decode
-                loopBuffer = await loadAudioFile(file);
+                const { arrayBuffer, audioBuffer } = await loadAudioFile(file);
+                loopBuffer = audioBuffer;
+                loopFileData = arrayBuffer;
+                loopFilename = file.name;
+                loopNameEl.innerText = file.name;
                 
                 // Enable play button
                 btnPlay.disabled = false;
@@ -410,9 +450,10 @@
             }
 
             // Stop any one-shots currently mid-playback
-            activeOneShotSources.forEach(source => {
-                try { source.stop(); } catch (e) {}
-                try { source.disconnect(); } catch (e) {}
+            activeOneShotSources.forEach(active => {
+                try { active.source.stop(); } catch (e) {}
+                try { active.source.disconnect(); } catch (e) {}
+                try { active.gainNode.disconnect(); } catch (e) {}
             });
             activeOneShotSources = [];
         }
@@ -455,11 +496,14 @@
             source.connect(specificGain);
             specificGain.connect(masterGainNode);
             
-            // Track active one-shots so they can be stopped mid-playback
-            activeOneShotSources.push(source);
+            // Track active one-shots (with their gain node + slot index) so they
+            // can be stopped mid-playback and have their gain updated live.
+            const active = { source, gainNode: specificGain, index: shot.index };
+            activeOneShotSources.push(active);
             source.onended = () => {
-                const idx = activeOneShotSources.indexOf(source);
+                const idx = activeOneShotSources.indexOf(active);
                 if (idx > -1) activeOneShotSources.splice(idx, 1);
+                try { specificGain.disconnect(); } catch (e) {}
             };
 
             source.start();
@@ -483,12 +527,13 @@
                         <span id="oneshot-gain-val-${i}" class="text-xs font-mono bg-gray-900 px-2 py-1 rounded text-gray-400">Gain: 1.0</span>
                     </div>
                     
-                    <input type="file" id="oneshot-file-${i}" accept="audio/*" class="block w-full text-xs text-gray-400 mb-3
+                    <input type="file" id="oneshot-file-${i}" accept="audio/*" class="block w-full text-xs text-gray-400 mb-2
                         file:mr-3 file:py-1.5 file:px-3
                         file:rounded-md file:border-0
                         file:text-xs file:font-semibold
                         file:bg-gray-700 file:text-gray-200
                         hover:file:bg-gray-600 cursor-pointer">
+                    <p id="oneshot-name-${i}" class="text-xs text-gray-500 truncate mb-3">Empty</p>
                     
                     <input type="range" id="oneshot-gain-${i}" min="0" max="1" step="0.05" value="1" class="w-full">
                 `;
@@ -498,18 +543,16 @@
                 document.getElementById(`oneshot-file-${i}`).addEventListener('change', async (e) => {
                     const file = e.target.files[0];
                     if (!file) {
-                        oneShots[i].buffer = null;
-                        oneShots[i].filename = '';
-                        document.getElementById(`oneshot-slot-${i}`).classList.replace('bg-purple-900/20', 'bg-gray-800/50');
-                        document.getElementById(`oneshot-slot-${i}`).classList.replace('border-purple-500/50', 'border-gray-700');
+                        clearOneShot(i);
                         return;
                     }
                     try {
-                        oneShots[i].buffer = await loadAudioFile(file);
+                        const { arrayBuffer, audioBuffer } = await loadAudioFile(file);
+                        oneShots[i].buffer = audioBuffer;
+                        oneShots[i].data = arrayBuffer;
                         oneShots[i].filename = file.name;
-                        // Highlight slot to show it's active
-                        document.getElementById(`oneshot-slot-${i}`).classList.replace('bg-gray-800/50', 'bg-purple-900/20');
-                        document.getElementById(`oneshot-slot-${i}`).classList.replace('border-gray-700', 'border-purple-500/50');
+                        document.getElementById(`oneshot-name-${i}`).innerText = file.name;
+                        setOneShotSlotActive(i, true);
                     } catch (err) {
                         alert("Error loading one-shot file.");
                     }
@@ -520,6 +563,14 @@
                     const val = parseFloat(e.target.value);
                     oneShots[i].baseGain = val;
                     document.getElementById(`oneshot-gain-val-${i}`).innerText = `Gain: ${val.toFixed(2)}`;
+                    // Apply live to any instances of this slot currently sounding
+                    if (audioCtx) {
+                        activeOneShotSources.forEach(active => {
+                            if (active.index === i) {
+                                active.gainNode.gain.setTargetAtTime(val, audioCtx.currentTime, 0.05);
+                            }
+                        });
+                    }
                 });
             }
         }
@@ -534,6 +585,141 @@
             }
         }
 
+        function setOneShotSlotActive(i, active) {
+            const slot = document.getElementById(`oneshot-slot-${i}`);
+            if (!slot) return;
+            if (active) {
+                slot.classList.remove('bg-gray-800/50', 'border-gray-700');
+                slot.classList.add('bg-purple-900/20', 'border-purple-500/50');
+            } else {
+                slot.classList.add('bg-gray-800/50', 'border-gray-700');
+                slot.classList.remove('bg-purple-900/20', 'border-purple-500/50');
+            }
+        }
+
+        function clearOneShot(i) {
+            oneShots[i].buffer = null;
+            oneShots[i].data = null;
+            oneShots[i].filename = '';
+            oneShots[i].baseGain = 1.0;
+            const nameEl = document.getElementById(`oneshot-name-${i}`);
+            if (nameEl) nameEl.innerText = 'Empty';
+            const gainEl = document.getElementById(`oneshot-gain-${i}`);
+            if (gainEl) gainEl.value = 1;
+            const gainValEl = document.getElementById(`oneshot-gain-val-${i}`);
+            if (gainValEl) gainValEl.innerText = 'Gain: 1.0';
+            setOneShotSlotActive(i, false);
+        }
+
+        // --- Simple Audio Package (.sap) Import / Export ---
+        // A .sap file is a standard ZIP archive containing the audio files plus a
+        // metadata.json manifest, so it can be opened with 7-Zip or any ZIP tool.
+        async function exportPackage() {
+            if (!loopFileData) {
+                alert("Load a primary looping audio file before exporting.");
+                return;
+            }
+            if (typeof JSZip === 'undefined') {
+                alert("Packaging library failed to load. Check your internet connection and reload.");
+                return;
+            }
+
+            try {
+                const zip = new JSZip();
+                const metadata = { format: "sap", version: 1, loop: null, oneShots: [] };
+
+                const loopName = loopFilename || "loop";
+                const loopPath = `loop/${loopName}`;
+                zip.file(loopPath, loopFileData);
+                metadata.loop = { path: loopPath, filename: loopName, gain: loopBaseGain };
+
+                oneShots.forEach((shot, i) => {
+                    if (shot.data && shot.filename) {
+                        // Namespace by slot to avoid filename collisions between slots.
+                        const path = `oneshots/${i}/${shot.filename}`;
+                        zip.file(path, shot.data);
+                        metadata.oneShots.push({ slot: i, path, filename: shot.filename, gain: shot.baseGain });
+                    }
+                });
+
+                zip.file("metadata.json", JSON.stringify(metadata, null, 2));
+
+                const blob = await zip.generateAsync({ type: "blob" });
+                const base = (loopFilename || "package").replace(/\.[^/.]+$/, "") || "package";
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${base}.sap`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+            } catch (err) {
+                console.error("Error exporting package:", err);
+                alert("Error exporting .sap file: " + err.message);
+            }
+        }
+
+        async function importPackage(file) {
+            if (typeof JSZip === 'undefined') {
+                alert("Packaging library failed to load. Check your internet connection and reload.");
+                return;
+            }
+
+            try {
+                initAudioContext();
+                stopPlayback();
+
+                const zip = await JSZip.loadAsync(file);
+                const metaEntry = zip.file("metadata.json");
+                if (!metaEntry) throw new Error("missing metadata.json (not a valid .sap file)");
+                const metadata = JSON.parse(await metaEntry.async("string"));
+
+                // Loop
+                if (metadata.loop && metadata.loop.path) {
+                    const entry = zip.file(metadata.loop.path);
+                    if (!entry) throw new Error("looping file referenced in metadata is missing");
+                    const ab = await entry.async("arraybuffer");
+                    loopBuffer = await decodeBytes(ab);
+                    loopFileData = ab;
+                    loopFilename = metadata.loop.filename || "loop";
+                    loopBaseGain = typeof metadata.loop.gain === 'number' ? metadata.loop.gain : 1.0;
+                    loopGain.value = loopBaseGain;
+                    loopGainVal.innerText = loopBaseGain.toFixed(2);
+                    loopNameEl.innerText = loopFilename;
+                    btnPlay.disabled = false;
+                }
+
+                // Reset every one-shot slot before applying the package's slots.
+                for (let i = 0; i < MAX_ONESHOTS; i++) clearOneShot(i);
+
+                if (Array.isArray(metadata.oneShots)) {
+                    for (const shotMeta of metadata.oneShots) {
+                        const i = shotMeta.slot;
+                        if (i == null || i < 0 || i >= MAX_ONESHOTS) continue;
+                        const entry = zip.file(shotMeta.path);
+                        if (!entry) continue;
+                        const ab = await entry.async("arraybuffer");
+                        oneShots[i].buffer = await decodeBytes(ab);
+                        oneShots[i].data = ab;
+                        oneShots[i].filename = shotMeta.filename || `slot${i}`;
+                        oneShots[i].baseGain = typeof shotMeta.gain === 'number' ? shotMeta.gain : 1.0;
+
+                        const gainEl = document.getElementById(`oneshot-gain-${i}`);
+                        if (gainEl) gainEl.value = oneShots[i].baseGain;
+                        const gainValEl = document.getElementById(`oneshot-gain-val-${i}`);
+                        if (gainValEl) gainValEl.innerText = `Gain: ${oneShots[i].baseGain.toFixed(2)}`;
+                        const nameEl = document.getElementById(`oneshot-name-${i}`);
+                        if (nameEl) nameEl.innerText = oneShots[i].filename;
+                        setOneShotSlotActive(i, true);
+                    }
+                }
+            } catch (err) {
+                console.error("Error importing package:", err);
+                alert("Error importing .sap file: " + err.message);
+            }
+        }
+
         // Initialize UI & Bindings
         createOneShotSlots();
         updateDistanceModel();
@@ -544,6 +730,14 @@
         });
         
         btnStop.addEventListener('click', stopPlayback);
+
+        btnExport.addEventListener('click', exportPackage);
+        btnImport.addEventListener('click', () => importFile.click());
+        importFile.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) importPackage(file);
+            e.target.value = ''; // reset so the same file can be re-imported
+        });
 
     </script>
 </body>
