@@ -613,7 +613,7 @@
 
         // --- Simple Audio Package (.sap) Import / Export ---
         // A .sap file is a standard ZIP archive containing the audio files plus a
-        // metadata.json manifest, so it can be opened with 7-Zip or any ZIP tool.
+        // contents.json manifest, so it can be opened with 7-Zip or any ZIP tool.
         async function exportPackage() {
             if (!loopFileData) {
                 alert("Load a primary looping audio file before exporting.");
@@ -642,7 +642,7 @@
                     }
                 });
 
-                zip.file("metadata.json", JSON.stringify(metadata, null, 2));
+                zip.file("contents.json", JSON.stringify(metadata, null, 2));
 
                 const blob = await zip.generateAsync({ type: "blob" });
                 const base = (loopFilename || "package").replace(/\.[^/.]+$/, "") || "package";
@@ -671,8 +671,8 @@
                 stopPlayback();
 
                 const zip = await JSZip.loadAsync(file);
-                const metaEntry = zip.file("metadata.json");
-                if (!metaEntry) throw new Error("missing metadata.json (not a valid .sap file)");
+                const metaEntry = zip.file("contents.json");
+                if (!metaEntry) throw new Error("missing contents.json (not a valid .sap file)");
                 const metadata = JSON.parse(await metaEntry.async("string"));
 
                 // Loop
